@@ -1,0 +1,25 @@
+{
+  "scenario": {
+    "seed": 7,
+    "start_mid": 100.0,
+    "tick_size": 0.5,
+    "steps": 2500,
+    "sigma_bps": 4.0,
+    "spread_ticks": 2,
+    "depth_min": 1.0,
+    "depth_max": 8.0
+  },
+  "simulator": {
+    "tick_size": 0.5,
+    "maker_fee_bps": -0.5,
+    "taker_fee_bps": 2.0,
+    "aggressive_cross_prob": 0.03,
+    "passive_fill_prob_base": 0.08,
+    "max_inventory": 12.0
+  },
+  "strategy": {
+    "half_spread_bps": 3.0,
+    "inv_penalty_bps": 0.8,
+    "quote_size": 1.0
+  }
+}

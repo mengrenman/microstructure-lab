@@ -1,0 +1,27 @@
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+outputs/*.json
+
+cat >> .gitignore << 'EOF'
+
+# IDE
+.idea/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Pytest
+.pytest_cache/
+
+# Outputs / generated artifacts
+outputs/
+results/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+EOF
