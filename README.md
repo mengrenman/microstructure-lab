@@ -60,10 +60,10 @@ Ten summary metrics per run:
 ### Notebooks
 | Notebook | Topic |
 |----------|-------|
-| `01_baseline_mm_analysis` | PnL/inventory trajectory, vol-dependent spread, flow mix, microstructure decomposition |
-| `02_execution_quality_analysis` | Maker/taker mix, fee drag, slippage proxy, spread decomposition histograms |
-| `03_funding_basis_arb_analysis` | OU-process basis, delta-neutral carry strategy, P&L decomposition, threshold sweep |
-| `04_two_venue_latency_arb_analysis` | Cross-venue basis, latency/transfer-delay stress grid, win-rate heatmap, threshold sensitivity |
+| [`01_baseline_mm_analysis`](notebooks/01_baseline_mm_analysis.ipynb) | PnL/inventory trajectory, vol-dependent spread, flow mix, microstructure decomposition |
+| [`02_execution_quality_analysis`](notebooks/02_execution_quality_analysis.ipynb) | Maker/taker mix, fee drag, slippage proxy, spread decomposition histograms |
+| [`03_funding_basis_arb_analysis`](notebooks/03_funding_basis_arb_analysis.ipynb) | OU-process basis, delta-neutral carry strategy, P&L decomposition, threshold sweep |
+| [`04_two_venue_latency_arb_analysis`](notebooks/04_two_venue_latency_arb_analysis.ipynb) | Cross-venue basis, latency/transfer-delay stress grid, win-rate heatmap, threshold sensitivity |
 
 All notebooks are papermill-compatible — override the `result_json` (and other) parameters from the CLI without editing source.
 
