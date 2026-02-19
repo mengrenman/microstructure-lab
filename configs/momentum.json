@@ -26,9 +26,9 @@
     "adverse_selection_horizon": 5
   },
   "strategy": {
-    "type": "InventorySkewMM",
-    "half_spread_bps": 3.0,
-    "inv_penalty_bps": 0.8,
+    "type": "MomentumStrategy",
+    "window": 20,
+    "entry_threshold_bps": 1.0,
     "quote_size": 1.0
   }
 }

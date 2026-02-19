@@ -15,11 +15,15 @@ class SimulationConfig:
     tick_size: float = 0.5
     maker_fee_bps: float = -0.5
     taker_fee_bps: float = 2.0
+    # Base probability that the strategy quote crosses the touch and lifts immediately.
+    # Scaled up by realized volatility at runtime.
     aggressive_cross_prob: float = 0.03
     passive_fill_prob_base: float = 0.08
     max_inventory: float = 10.0
     periods_per_year: float = 365.0 * 24.0 * 60.0
     random_seed: int = 42
+    # How many steps ahead to measure adverse selection (0 = disabled).
+    adverse_selection_horizon: int = 5
 
 
 @dataclass
@@ -49,13 +53,22 @@ class Simulator:
         spread_path: list[float] = []
         fills: list[Fill] = []
 
-        for event in scenario_stream:
-            book.set_top(
-                best_bid=event["best_bid"],
-                bid_size=event["bid_size"],
-                best_ask=event["best_ask"],
-                ask_size=event["ask_size"],
-            )
+        # Eagerly consume the stream so we can do look-ahead for adverse selection.
+        events = list(scenario_stream)
+
+        for idx, event in enumerate(events):
+            # Build order book snapshot.  The scenario may supply multi-level depth
+            # via "bid_levels" / "ask_levels"; fall back to single top-of-book.
+            if "bid_levels" in event and "ask_levels" in event:
+                book.set_depth(event["bid_levels"], event["ask_levels"])
+            else:
+                book.set_top(
+                    best_bid=event["best_bid"],
+                    bid_size=event["bid_size"],
+                    best_ask=event["best_ask"],
+                    ask_size=event["ask_size"],
+                )
+
             state = MarketState(
                 step=event["step"],
                 mid=book.mid(),
@@ -63,7 +76,8 @@ class Simulator:
                 best_ask=book.best_ask(),
                 spread=book.spread(),
                 imbalance=book.imbalance(),
-                volatility=0.0,
+                volatility=float(event.get("volatility", 0.0)),
+                regime=str(event.get("regime", "calm")),
             )
 
             quote = strategy.on_tick(state, inv)
@@ -82,6 +96,7 @@ class Simulator:
                     size=size,
                     fee=fee,
                     step=fill.step,
+                    mid_before=state.mid,
                 )
 
                 if bounded_fill.side == "buy":
@@ -100,6 +115,18 @@ class Simulator:
             mid_path.append(state.mid)
             spread_path.append(state.spread)
 
+        # ------------------------------------------------------------------
+        # Post-hoc adverse-selection annotation
+        # For each fill, look forward ``adverse_selection_horizon`` steps and
+        # record the mid price there.  Fills near the end of the series get the
+        # final mid as a fallback.
+        # ------------------------------------------------------------------
+        horizon = self.cfg.adverse_selection_horizon
+        if horizon > 0 and mid_path:
+            for f in fills:
+                future_idx = min(f.step + horizon, len(mid_path) - 1)
+                f.mid_after = mid_path[future_idx]
+
         result = SimulationResult(
             pnl_path=pnl_path,
             inventory_path=inv_path,
@@ -110,11 +137,15 @@ class Simulator:
         result.summary = summarize(
             path=pnl_path,
             inventory=inv_path,
-            fills=len(fills),
+            fills=fills,
             fees_paid=fees_paid,
             periods_per_year=self.cfg.periods_per_year,
         )
         return result
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
 
     def _validate_quote(self, quote) -> None:
         fields = (
@@ -151,18 +182,25 @@ class Simulator:
     def _simulate_fills(self, state: MarketState, quote, inventory: float) -> list[Fill]:
         fills: list[Fill] = []
 
-        # Aggressive crosses (rare): strategy quote crosses touch and lifts/joins immediately.
-        if quote.bid_px >= state.best_ask and self.rng.random() < self.cfg.aggressive_cross_prob:
+        # Aggressive cross probability scales with realized volatility so that
+        # in stressed regimes (high vol) quotes are more likely to inadvertently
+        # cross the touch.
+        vol_scale = 1.0 + max(0.0, state.volatility / max(state.spread, 1e-9))
+        cross_prob = min(1.0, self.cfg.aggressive_cross_prob * vol_scale)
+
+        # Aggressive crosses: strategy quote crosses touch → immediate taker fill.
+        if quote.bid_px >= state.best_ask and self.rng.random() < cross_prob:
             size = min(quote.bid_sz, 1.0)
             fee = state.best_ask * size * (self.cfg.taker_fee_bps / 10_000.0)
             fills.append(Fill(side="buy", price=state.best_ask, size=size, fee=fee, step=state.step))
 
-        if quote.ask_px <= state.best_bid and self.rng.random() < self.cfg.aggressive_cross_prob:
+        if quote.ask_px <= state.best_bid and self.rng.random() < cross_prob:
             size = min(quote.ask_sz, 1.0)
             fee = state.best_bid * size * (self.cfg.taker_fee_bps / 10_000.0)
             fills.append(Fill(side="sell", price=state.best_bid, size=size, fee=fee, step=state.step))
 
-        # Passive fills use stochastic hit probabilities with quote distance and imbalance effects.
+        # Passive fills: stochastic hit probability decays exponentially with
+        # distance from touch and is biased by book imbalance.
         dist_bid_ticks = max(0.0, (state.best_bid - quote.bid_px) / max(self.cfg.tick_size, 1e-9))
         dist_ask_ticks = max(0.0, (quote.ask_px - state.best_ask) / max(self.cfg.tick_size, 1e-9))
 

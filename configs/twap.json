@@ -26,9 +26,9 @@
     "adverse_selection_horizon": 5
   },
   "strategy": {
-    "type": "InventorySkewMM",
-    "half_spread_bps": 3.0,
-    "inv_penalty_bps": 0.8,
-    "quote_size": 1.0
+    "type": "TWAPStrategy",
+    "target_inventory": 10.0,
+    "total_steps": 500,
+    "quote_size": 0.5
   }
 }
