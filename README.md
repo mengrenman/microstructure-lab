@@ -54,7 +54,7 @@ From `configs/baseline_mm.json` (latest local run):
 
 - `final_pnl`: `2.009289`
 - `max_drawdown`: `-5.844895`
-- `sharpe_annualized`: `4.334671`
+- `sharpe_annualized`: `5.216777`
 - `fills`: `372`
 - `fees_paid`: `-1.153370`
 - `avg_abs_inventory`: `2.289844`

@@ -18,6 +18,7 @@ class SimulationConfig:
     aggressive_cross_prob: float = 0.03
     passive_fill_prob_base: float = 0.08
     max_inventory: float = 10.0
+    periods_per_year: float = 365.0 * 24.0 * 60.0
     random_seed: int = 42
 
 
@@ -66,20 +67,33 @@ class Simulator:
             )
 
             quote = strategy.on_tick(state, inv)
+            self._validate_quote(quote)
 
             step_fills = self._simulate_fills(state, quote, inv)
             for fill in step_fills:
-                if fill.side == "buy":
-                    inv += fill.size
-                    cash -= fill.price * fill.size
-                else:
-                    inv -= fill.size
-                    cash += fill.price * fill.size
-                cash -= fill.fee
-                fees_paid += fill.fee
-                fills.append(fill)
+                size = self._bounded_fill_size(fill.side, fill.size, inv)
+                if size <= 0.0:
+                    continue
 
-            inv = max(-self.cfg.max_inventory, min(self.cfg.max_inventory, inv))
+                fee = fill.fee * (size / fill.size) if fill.size > 0 else 0.0
+                bounded_fill = Fill(
+                    side=fill.side,
+                    price=fill.price,
+                    size=size,
+                    fee=fee,
+                    step=fill.step,
+                )
+
+                if bounded_fill.side == "buy":
+                    inv += bounded_fill.size
+                    cash -= bounded_fill.price * bounded_fill.size
+                else:
+                    inv -= bounded_fill.size
+                    cash += bounded_fill.price * bounded_fill.size
+                cash -= bounded_fill.fee
+                fees_paid += bounded_fill.fee
+                fills.append(bounded_fill)
+
             mtm = cash + inv * state.mid
             pnl_path.append(mtm)
             inv_path.append(inv)
@@ -98,8 +112,41 @@ class Simulator:
             inventory=inv_path,
             fills=len(fills),
             fees_paid=fees_paid,
+            periods_per_year=self.cfg.periods_per_year,
         )
         return result
+
+    def _validate_quote(self, quote) -> None:
+        fields = (
+            ("bid_px", quote.bid_px),
+            ("ask_px", quote.ask_px),
+            ("bid_sz", quote.bid_sz),
+            ("ask_sz", quote.ask_sz),
+        )
+        for name, value in fields:
+            if not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise ValueError(f"Invalid quote value for {name}: {value!r}")
+
+        if quote.bid_px < 0.0 or quote.ask_px < 0.0:
+            raise ValueError("Quote prices must be non-negative")
+        if quote.bid_sz < 0.0 or quote.ask_sz < 0.0:
+            raise ValueError("Quote sizes must be non-negative")
+        if quote.ask_px < quote.bid_px:
+            raise ValueError("Quote ask price must be >= bid price")
+
+    def _bounded_fill_size(self, side: str, size: float, inventory: float) -> float:
+        if size <= 0.0:
+            return 0.0
+
+        if side == "buy":
+            room = self.cfg.max_inventory - inventory
+            return max(0.0, min(size, room))
+
+        if side == "sell":
+            room = inventory + self.cfg.max_inventory
+            return max(0.0, min(size, room))
+
+        raise ValueError(f"Unknown fill side: {side!r}")
 
     def _simulate_fills(self, state: MarketState, quote, inventory: float) -> list[Fill]:
         fills: list[Fill] = []

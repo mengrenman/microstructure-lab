@@ -15,7 +15,8 @@
     "taker_fee_bps": 2.0,
     "aggressive_cross_prob": 0.03,
     "passive_fill_prob_base": 0.08,
-    "max_inventory": 12.0
+    "max_inventory": 12.0,
+    "periods_per_year": 525600.0
   },
   "strategy": {
     "half_spread_bps": 3.0,

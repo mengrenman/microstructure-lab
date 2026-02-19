@@ -4,13 +4,20 @@ import math
 from statistics import mean, pstdev
 
 
-def summarize(path: list[float], inventory: list[float], fills: int, fees_paid: float) -> dict[str, float]:
+def summarize(
+    path: list[float],
+    inventory: list[float],
+    fills: int,
+    fees_paid: float,
+    periods_per_year: float,
+) -> dict[str, float]:
     pnl = [float(x) for x in path]
     rets = [pnl[i] - pnl[i - 1] for i in range(1, len(pnl))]
 
     mean_ret = float(mean(rets)) if rets else 0.0
     std_ret = float(pstdev(rets)) if len(rets) > 1 else 0.0
-    sharpe = (mean_ret / std_ret * math.sqrt(252 * 24 * 60)) if std_ret > 0 else 0.0
+    annualization = math.sqrt(periods_per_year) if periods_per_year > 0 else 0.0
+    sharpe = (mean_ret / std_ret * annualization) if std_ret > 0 else 0.0
 
     peak = float("-inf")
     max_dd = 0.0
