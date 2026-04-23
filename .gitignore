@@ -25,6 +25,7 @@ results/
 
 # LaTeX / presentation
 slides/
+docs/
 
 # Misc
-texput.log
+texput.logdocs/

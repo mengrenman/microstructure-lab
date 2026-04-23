@@ -1,6 +1,6 @@
 # microstructure-lab
 
-![CI](https://github.com/<your-username>/microstructure-lab/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/mengrenman/microstructure-lab/actions/workflows/ci.yml/badge.svg)
 
 A portfolio-oriented research repository for market microstructure, execution quality, and
 crypto-market carry/arbitrage ideas.
