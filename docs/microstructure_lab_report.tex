@@ -1,0 +1,157 @@
+% ============================================================
+%  microstructure-lab -- Executive Report (2-page)
+%  Compile:
+%    pdflatex microstructure_lab_report
+% ============================================================
+\documentclass[10pt, a4paper]{article}
+
+\usepackage[top=1.8cm, bottom=1.8cm, left=1.9cm, right=1.9cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage[parfill]{parskip}
+\usepackage{amsmath, amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{caption}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\setlist{noitemsep, topsep=2pt, leftmargin=1.2em}
+\usepackage{titlesec}
+
+\definecolor{mblue}{RGB}{0,70,127}
+\definecolor{mgray}{RGB}{90,90,90}
+\definecolor{ruleblue}{RGB}{180,205,230}
+
+\titleformat{\section}
+  {\normalsize\bfseries\color{mblue}}{\thesection.}{0.5em}{}
+  [\vspace{-2pt}{\color{ruleblue}\rule{\linewidth}{0.5pt}}\vspace{1pt}]
+\titlespacing*{\section}{0pt}{8pt}{3pt}
+
+\captionsetup{font=small, labelfont={bf,color=mblue}, skip=3pt}
+
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0.3pt}
+\fancyhead[L]{\footnotesize\color{mgray}\texttt{microstructure-lab}}
+\fancyhead[R]{\footnotesize\color{mgray}Executive Report}
+\fancyfoot[C]{\footnotesize\color{mgray}\thepage\ / 2}
+
+\usepackage[colorlinks, linkcolor=mblue, urlcolor=mblue,
+            pdftitle={microstructure-lab -- Executive Report}]{hyperref}
+
+\newcommand{\code}[1]{\texttt{\small #1}}
+
+\begin{document}
+
+% ---- Masthead ----------------------------------------------
+\begin{center}
+  {\Large\bfseries\color{mblue} microstructure-lab}\\[1pt]
+  {\small An event-driven framework for market-microstructure simulation and execution analytics}\\[2pt]
+  {\footnotesize\color{mgray} Mengren Man \enspace\textbullet\enspace April 2026}
+\end{center}
+\vspace{-6pt}
+{\color{ruleblue}\rule{\linewidth}{0.5pt}}
+
+\vspace{2pt}
+\noindent\textbf{Summary.}\enspace
+\textit{microstructure-lab} is a Python research repository that exercises the full hypothesis~$\rightarrow$~simulation~$\rightarrow$~diagnostics~$\rightarrow$~iteration loop on short-horizon microstructure and crypto-carry ideas. Every friction that typically breaks naive backtests -- bid--ask spread, stochastic fill probability, adverse selection, inventory accumulation, fees -- is a first-class, measurable quantity. The repo ships four strategies, a ten-metric analytics suite, four research notebooks, a 24-test suite, and GitHub Actions CI across Python 3.10--3.12. All results below are on synthetic data and are intended as diagnostics, not return claims.
+
+% ---- Framework --------------------------------------------
+\section{Framework}
+
+\textbf{Simulation engine.} Event-driven limit-order book with multi-level depth (\code{set\_depth}, \code{depth\_imbalance}, \code{weighted\_mid}), stochastic passive fill (exponential-decay in distance-to-mid), a vol-scaled aggressive-cross model, fee-aware mark-to-mid PnL, and per-fill adverse-selection annotation (mid before/after a configurable horizon). Runs are deterministic under a seed and fully config-driven.
+
+\textbf{Market scenario.} Geometric Brownian mid with Markov regime switching (calm/stressed) and vol-dependent spread widening, producing the state-contingent flow the microstructure literature actually cares about.
+
+\vspace{4pt}
+\noindent\begin{minipage}[c]{0.55\linewidth}
+\textbf{Strategies} (swap via JSON \code{"type"} field; no code change):
+\vspace{3pt}
+\begin{center}\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Strategy} & \textbf{Role} & \textbf{Signal} \\
+\midrule
+\code{InventorySkewMM}  & Passive maker    & Inventory skew \\
+\code{TWAPStrategy}     & Passive taker    & Time-sliced \\
+\code{MomentumStrategy} & Aggressive taker & Rolling return \\
+\code{DoNothingStrategy}& Control baseline & --- \\
+\bottomrule
+\end{tabular}
+\end{center}
+\end{minipage}\hfill
+\begin{minipage}[c]{0.40\linewidth}
+\centering
+\includegraphics[width=0.92\linewidth]{../results/01_baseline_mm_overview.png}
+\captionof{figure}{Representative \code{InventorySkewMM} trajectory (2{,}500 steps): mark-to-mid PnL, inventory, mid-price, and quoted spread.}
+\label{fig:baseline}
+\end{minipage}
+
+\vspace{6pt}
+\textbf{Analytics (per run).} \code{final\_pnl}, \code{max\_drawdown}, \code{sharpe\_annualized}, \code{fills}, \code{fees\_paid}, \code{avg\_abs\_inventory}, \code{inventory\_half\_life}, \code{fill\_rate}, \code{realized\_spread\_avg}, \code{adverse\_selection\_avg}.
+
+% ---- Findings ----------------------------------------------
+\section{Findings across the four notebooks}
+
+\textbf{(1) Baseline market maker.} With the calibrated inventory penalty $\lambda{=}7{.}5$\,bps (\code{configs/baseline\_mm.json}, $\sigma{=}4$\,bps, 2{,}500 steps), the maker delivers \code{final\_pnl}$=+1.72$, annualised Sharpe $+2.31$, 377 fills, and a \emph{net fee rebate} of $-1.17$. Inventory mean-reverts with a half-life of 118 steps vs.\ $\infty$ when $\lambda{\lesssim}6$\,bps; above $\sim$8\,bps the skew starts crossing the spread and compresses realised spread. NB01 sweeps the full $\lambda$ grid so the trade-off is visible rather than asserted.
+
+\textbf{(2) Execution quality.} NB02 decomposes the fill stream: 100\% maker fills for the baseline (expected -- it never crosses), a net maker rebate, and empirical distributions for a slippage proxy and a post-fill adverse-selection proxy. The adverse-selection histogram is the diagnostic that matters: its mean is the portion of the quoted spread being given back to informed flow (Glosten--Milgrom), and it is the lever that separates real edge from apparent edge.
+
+\textbf{(3) Funding / basis carry.} NB03 models a perp--spot basis as an OU process ($\sim$8\% annualised on the synthetic series) and runs a delta-neutral carry strategy with a threshold-based entry rule. The equity curve accrues monotonically as designed, and a threshold sweep quantifies the turnover/fee trade-off. This is the template for plugging in real Binance perpetual-funding history (see roadmap).
+
+\textbf{(4) Two-venue latency arbitrage.} NB04 sweeps signal latency $\times$ transfer delay on a cross-venue basis signal (Figure~\ref{fig:latency}). The edge collapses the moment signal latency rises above zero -- a canonical result that motivates co-location spend, and one any live cross-venue build must respect before scaling.
+
+\clearpage
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.78\linewidth]{../results/04_two_venue_latency_arb.png}
+\vspace{-4pt}
+\caption{Latency-arbitrage PnL sensitivity: only the zero-signal-latency row survives. Transfer delay matters materially less than information latency over this grid.}
+\label{fig:latency}
+\end{figure}
+
+\vspace{-4pt}
+\noindent\begin{minipage}[t]{0.46\linewidth}
+\centering
+\textbf{Calibrated baseline snapshot}\\[2pt]
+\parbox{0.78\linewidth}{\centering\footnotesize
+\code{baseline\_mm.json}\,\textbullet\,$\sigma{=}4$\,bps,\,$\lambda{=}7.5$\,bps,\,2{,}500 steps}\\[4pt]
+\small
+\begin{tabular}{@{}lr@{}}
+\toprule
+\textbf{Metric} & \textbf{Value} \\
+\midrule
+\code{final\_pnl}              & $+1.725$ \\
+\code{sharpe\_annualized}      & $+2.314$ \\
+\code{max\_drawdown}           & $-9.472$ \\
+\code{fills}                   & $377$ \\
+\code{fees\_paid}              & $-1.165$ (rebate) \\
+\code{avg\_abs\_inventory}     & $2.65$ \\
+\code{inventory\_half\_life}   & $118$ steps \\
+\code{realized\_spread\_avg}   & $0.003$ \\
+\code{adverse\_selection\_avg} & $0.001$ \\
+\bottomrule
+\end{tabular}\\[3pt]
+\parbox{0.85\linewidth}{\centering\footnotesize\color{mgray}\textit{Diagnostics on synthetic data -- not a return claim.}}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.50\linewidth}
+\textbf{Scope.} Everything above is run against a synthetic GBM+regime-switch generator. The numbers are intended to validate that the measurement apparatus is correct and the strategy logic responds to frictions the way theory predicts -- not to make return claims.
+
+\vspace{4pt}
+\textbf{Engineering posture.} Typed dataclasses, clean \code{src/}~/~\code{scripts/}~/~\code{notebooks/} boundaries, 24 tests across engine guards, depth, metrics, and behavioural properties, CI on Python 3.10--3.12 with papermill notebook smoke checks, deterministic seeds, every output reproducible from a JSON config.
+\end{minipage}
+
+\section{Near-term roadmap}
+
+(i) L2/L3 order-book replay with queue-position modelling; (ii) replace synthetic series with Binance perpetual funding/basis history via public REST; (iii) exchange-specific funding intervals and borrow costs for realistic basis calibration; (iv) independent stochastic leg fills for the two-venue arb; (v) parameter-sweep tracking for multi-run aggregation.
+
+\vspace{2pt}
+\footnotesize\color{mgray}\hfill
+Source: \texttt{github.com/\textless{}user\textgreater/microstructure-lab}\,\textbullet\, 18-slide Beamer deck available under \texttt{slides/}.
+
+\end{document}

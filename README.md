@@ -1,5 +1,7 @@
 # microstructure-lab
 
+![CI](https://github.com/<your-username>/microstructure-lab/actions/workflows/ci.yml/badge.svg)
+
 A portfolio-oriented research repository for market microstructure, execution quality, and
 crypto-market carry/arbitrage ideas.
 
@@ -73,6 +75,68 @@ behavioural/statistical properties of every strategy.
 
 ---
 
+## Simulation model
+
+The simulation is fundamentally an **interacting system of stochastic processes**: two state processes drive the market, two Bernoulli processes govern how the strategy interacts with it, and one deterministic feedback loop connects fill outcomes back into the next step's quoting behaviour.
+
+What makes it interesting is the coupling: `σ(t)` drives the mid shocks, the spread, and the aggressive cross probability simultaneously. A single regime switch ripples through every part of the system at once — price moves faster, spread widens, informed flow arrives more frequently, and fill probabilities all change in the same step. That joint behaviour is what naive backtests on mid-prices miss entirely.
+
+The simulation models a market using two coupled stochastic processes. Everything else — spread, fill probability, aggressive flow — is derived from them.
+
+### State variables
+
+| Variable | Process | Role |
+|----------|---------|------|
+| `mid(t)` | Regime-switching GBM | Fair value of the asset |
+| `σ(t)` | Two-state Markov chain | Volatility regime (calm / stressed) |
+
+**Volatility regime** switches at each step:
+```
+P( calm → stressed ) = 0.02      expected stressed duration: 1/0.10 = 10 steps
+P( stressed → calm ) = 0.10
+```
+
+**Mid price** is driven by `σ(t)`:
+```
+mid(t+1) = mid(t) · exp( μ + σ(t) · Z ),    Z ~ N(0,1)
+```
+
+In stressed regimes the mid moves more violently, the spread widens, and aggressive flow arrives more frequently — all because the same `σ(t)` feeds into every downstream quantity.
+
+### Derived market quantities (deterministic given state)
+
+- **Spread** — widens proportionally to `|return(t)|` via `spread_vol_sensitivity`
+- **Bid / ask** — set by the strategy around mid, shifted by an inventory skew term (`inv_penalty_bps`)
+- **Depth** — multi-level quantities (`depth_imbalance`, `weighted_mid`) derived from spread and a depth-generation function
+
+### Interaction channels (stochastic given state)
+
+The strategy interacts with the market through two Bernoulli processes, one per step:
+
+**Passive fill** — models uninformed flow drifting into resting quotes:
+```
+P(fill) = exp( -α · d ),    d = distance from quote to mid
+```
+Closer quotes are more likely to fill. Queue position and individual order mechanics are collapsed into this single probability — the key simplification relative to a full LOB simulation.
+
+**Aggressive cross** — models informed or urgent flow that crosses the spread immediately:
+```
+P(cross) ∝ σ(t)
+```
+This is doubly stochastic: the regime randomises `σ(t)`, which then randomises the cross probability. Aggressive crosses cluster in stressed periods.
+
+### PnL accounting
+
+```
+PnL(t) = cash(t) + inventory(t) × mid(t)
+```
+
+Inventory is marked to mid at every step, so holding a position when the mid moves against you registers as an immediate loss — regardless of whether you have traded. Fees (maker rebate / taker fee) are deducted from cash on every fill.
+
+The core tension the simulation measures: **spread capture** (earned on each fill) versus **inventory risk** (loss when mid moves against accumulated position). The `inv_penalty_bps` skew mechanism is the strategy's tool for managing that trade-off.
+
+---
+
 ## Repository structure
 
 ```
@@ -111,6 +175,9 @@ microstructure-lab/
 │   ├── test_metrics.py
 │   ├── test_sim_smoke.py
 │   └── test_behavioral.py
+├── slides/
+│   ├── microstructure_lab_presentation.tex  # Beamer slide deck source
+│   └── microstructure_lab_presentation.pdf  # Compiled presentation (18 slides)
 ├── outputs/                         # Git-ignored; generated at runtime
 ├── results/                         # Exported PNG charts
 ├── Makefile
@@ -178,23 +245,28 @@ papermill notebooks/01_baseline_mm_analysis.ipynb outputs/nb01_out.ipynb \
 
 ## Current baseline result snapshot
 
-From `configs/baseline_mm.json` (2500 steps, `sigma_bps=4.0`, `inv_penalty_bps=0.8`):
+From `configs/baseline_mm.json` (2500 steps, `sigma_bps=4.0`, `inv_penalty_bps=7.5`):
 
 | Metric | Value |
 |--------|-------|
-| `final_pnl` | `-3.387` |
-| `max_drawdown` | `-21.073` |
-| `sharpe_annualized` | `-2.485` |
-| `fills` | `369` |
-| `fees_paid` | `-1.139` (net rebate) |
-| `avg_abs_inventory` | `6.078` |
-| `inventory_half_life` | `inf` (inventory never reverted) |
-| `fill_rate` | `0.148` |
-| `realized_spread_avg` | `0.034` |
-| `adverse_selection_avg` | `0.004` |
+| `final_pnl` | `+1.725` |
+| `max_drawdown` | `-9.472` |
+| `sharpe_annualized` | `+2.314` |
+| `fills` | `377` |
+| `fees_paid` | `-1.165` (net rebate) |
+| `avg_abs_inventory` | `2.650` |
+| `inventory_half_life` | `118` steps |
+| `fill_rate` | `0.151` |
+| `realized_spread_avg` | `0.003` |
+| `adverse_selection_avg` | `0.001` |
 
 > Values are for **synthetic data only** — they are diagnostics, not performance claims.
-> `inventory_half_life = inf` is expected for this parameter set; raise `inv_penalty_bps` to bring inventory under control.
+
+**Tuning note:** `inv_penalty_bps=7.5` is the calibrated value that keeps `inventory_half_life` finite
+(≈118 steps). Below ~6 bps the inventory never mean-reverts (`half_life=inf`); above ~8 bps the
+penalty skew starts crossing the spread aggressively, compressing `realized_spread_avg`.
+The 7.5 bps setting balances inventory control (avg|inv|≈2.65 vs. ≈6.1 untuned) with a positive Sharpe.
+The NB01 penalty sweep reproduces the full `inv_penalty_bps` sensitivity grid.
 
 ---
 
@@ -228,16 +300,34 @@ This repository is designed to signal fit for quant researcher / quant trader ro
 
 ## Roadmap
 
+Done:
+- ✅ **CI workflow** — GitHub Actions: pytest across Python 3.10–3.12 + papermill notebook smoke checks on every push.
+
+Upcoming:
 1. **L2/L3 order-book replay** — queue-position modelling, historical data ingestion pipeline.
-2. **Funding mechanics** — real exchange-specific funding intervals, borrow costs, basis calibration from live data.
-3. **Leg-risk modelling** — two-venue arb with stochastic fill on each leg independently.
-4. **Experiment tracking** — strategy comparison dashboard, parameter-sweep pipeline with multi-run aggregation.
-5. **CI workflow** — GitHub Actions: tests + notebook smoke checks on every push.
+2. **Real price / funding data** — replace synthetic series with Binance perpetual funding-rate history via public REST API.
+3. **Funding mechanics** — real exchange-specific funding intervals, borrow costs, basis calibration from live data.
+4. **Leg-risk modelling** — two-venue arb with stochastic fill on each leg independently.
+5. **Experiment tracking** — strategy comparison dashboard, parameter-sweep pipeline with multi-run aggregation.
+
+---
+
+## Slide deck
+
+A self-contained Beamer presentation covering the full codebase is in `slides/`:
+
+```bash
+cd slides
+pdflatex microstructure_lab_presentation.tex   # run twice for TOC/nav
+```
+
+The compiled PDF (`microstructure_lab_presentation.pdf`, 18 slides) is committed and can be shared directly.
 
 ---
 
 ## Notes
 
-- `outputs/*.json` is git-ignored; regenerate with `make report`.
+- `outputs/` is git-ignored; regenerate JSON outputs with `make report` and PNGs with `make results`.
 - Keep all model logic in `src/`; notebooks are for analysis only.
 - The `scripts/` directory is not a Python package — import from it in tests via the `conftest.py`-managed `sys.path`.
+- LaTeX auxiliary files (`*.aux`, `*.log`, `*.nav`, `*.snm`, etc.) in `slides/` are git-ignored.

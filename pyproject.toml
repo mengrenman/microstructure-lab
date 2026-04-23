@@ -14,6 +14,13 @@ dependencies = []
 dev = [
   "pytest>=8.0",
 ]
+notebooks = [
+  "matplotlib>=3.7",
+  "papermill>=2.4",
+  "nbformat>=5.9",
+  "jupyter-client>=8.0",
+  "ipykernel>=6.0",
+]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
