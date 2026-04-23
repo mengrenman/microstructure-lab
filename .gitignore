@@ -1,0 +1,30 @@
+# IDE
+.idea/
+.vscode/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Pytest
+.pytest_cache/
+
+# Outputs / generated artifacts
+outputs/
+results/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+
+# Local tools
+.claude/
+
+# LaTeX / presentation
+slides/
+
+# Misc
+texput.log
